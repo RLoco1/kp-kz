@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>КП — KERAMA MARAZZI KZ</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f4f5f7; --card: #fff; --accent: #00b5d9; --accent2: #009bb8;
+  --txt: #333; --txt2: #555; --txt3: #aaa; --brd: #dde3f0;
+  --ok-bg: #eafaf1; --ok-txt: #1e8449; --err-bg: #fdf0f0; --err-txt: #c0392b;
+  --info-bg: #eef2ff; --info-txt: #3a5bd9; --item-bg: #f8f9ff; --item-brd: #e0e6ff;
+}
+body {
+  font-family: Arial, sans-serif; background: var(--bg);
+  min-height: 100vh; display: flex; align-items: flex-start;
+  justify-content: center; padding: 24px 16px;
+}
+.card {
+  background: var(--card); border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.10);
+  width: 100%; max-width: 520px; overflow: hidden;
+}
+.hdr { background: var(--accent); padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; }
+.hdr-left { flex: 1; }
+.hdr-logo { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: .4px; }
+.hdr-sub  { font-size: 12px; color: #7a8fb0; margin-top: 4px; }
+.lang-toggle {
+  display: flex; gap: 4px; background: rgba(255,255,255,.12);
+  border-radius: 6px; padding: 3px;
+}
+.lang-btn {
+  border: none; background: transparent; color: #7a8fb0;
+  font-size: 12px; font-weight: 700; padding: 5px 10px;
+  border-radius: 4px; cursor: pointer; transition: all .15s;
+}
+.lang-btn.active { background: #fff; color: var(--accent); }
+.body { padding: 22px; }
+label { display: block; font-size: 12px; font-weight: 700; color: #444; margin-bottom: 7px; }
+textarea {
+  width: 100%; height: 120px;
+  border: 2px solid var(--brd); border-radius: 9px;
+  padding: 11px 13px; font-size: 14px;
+  font-family: 'Courier New', monospace;
+  resize: vertical; outline: none; transition: border-color .15s; line-height: 1.6;
+}
+textarea:focus { border-color: var(--accent); }
+textarea::placeholder { font-family: Arial,sans-serif; font-size: 13px; color: #bbb; }
+.hint { font-size: 11px; color: var(--txt3); margin-top: 6px; margin-bottom: 18px; }
+.btn {
+  width: 100%; background: var(--accent); color: #fff;
+  border: none; border-radius: 9px;
+  padding: 14px; font-size: 15px; font-weight: 700;
+  cursor: pointer; letter-spacing: .3px; transition: background .15s;
+}
+.btn:hover { background: var(--accent2); }
+.btn:disabled { background: #aaa; cursor: not-allowed; }
+.progress { height: 4px; background: #eee; border-radius: 2px; margin-top: 14px; overflow: hidden; display: none; }
+.progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width .3s; }
+.status { margin-top: 12px; padding: 10px 13px; border-radius: 8px; font-size: 13px; display: none; }
+.status.info { display:block; background:var(--info-bg); color:var(--info-txt); }
+.status.ok   { display:block; background:var(--ok-bg); color:var(--ok-txt); }
+.status.err  { display:block; background:var(--err-bg); color:var(--err-txt); }
+.found { margin-top: 18px; display: none; }
+.found-title { font-size: 12px; font-weight: 700; color: #444; margin-bottom: 8px; }
+.fi {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--item-bg); border: 1px solid var(--item-brd);
+  border-radius: 8px; padding: 9px 11px; margin-bottom: 7px;
+}
+.fi-ph { width:40px; height:40px; border-radius:5px; background:#e8eaf0; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:8px; color:#aaa; text-align:center; }
+.fi-img { width:40px; height:40px; object-fit:cover; border-radius:5px; flex-shrink:0; border:1px solid #ddd; }
+.fi-info { flex: 1; min-width: 0; }
+.fi-art  { font-size:12px; font-weight:700; color:var(--accent); }
+.fi-name { font-size:11px; color:var(--txt2); }
+.fi-size { font-size:10px; color:var(--txt3); }
+.fi-price {
+  width: 110px; flex-shrink: 0;
+}
+.fi-price input {
+  width: 100%; border: 2px solid var(--brd); border-radius: 6px;
+  padding: 6px 8px; font-size: 13px; outline: none;
+  transition: border-color .15s; text-align: right;
+}
+.fi-price input:focus { border-color: var(--accent); }
+.fi-price input::placeholder { font-size: 11px; color: #ccc; }
+.fi-price-label { font-size: 9px; color: var(--txt3); text-align: right; margin-top: 2px; }
+.vat-note { font-size: 11px; color: var(--txt3); margin-top: 10px; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-logo">КП · KERAMA MARAZZI KZ</div>
+      <div class="hdr-sub" id="hdr-sub">Введите артикулы — скачайте PDF</div>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn active" data-lang="ru" onclick="setLang('ru')">RU</button>
+      <button class="lang-btn" data-lang="kz" onclick="setLang('kz')">ҚАЗ</button>
+    </div>
+  </div>
+  <div class="body">
+    <label for="arts" id="lbl-arts">Артикулы</label>
+    <textarea id="arts" placeholder="SG614820R, DD507420R&#10;KM3060B0021R&#10;11205R DD602220R"></textarea>
+    <div class="hint" id="hint">Через запятую, пробел или с новой строки</div>
+    <button class="btn" id="btn">🔍 Найти артикулы</button>
+    <div class="progress" id="prog"><div class="progress-bar" id="bar"></div></div>
+    <div class="status" id="st"></div>
+    <div class="found" id="found">
+      <div class="found-title" id="found-title">Найдено в каталоге:</div>
+      <div id="foundList"></div>
+      <div class="vat-note" id="vat-note">* Цены указаны в KZT с учётом НДС 12%</div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
