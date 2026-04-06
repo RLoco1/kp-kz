@@ -169,7 +169,9 @@ async function gas(params) {
 function getJpgName(tile) {
   const list=tile.textures||[];
   const p=list.find(t=>t.toLowerCase().endsWith('.jpg'))||tile.texture_url||'';
-  return p?p.split('/').pop():null;
+  if (p) return p.split('/').pop();
+  // Фоллбэк: артикул.jpg
+  return tile.article ? tile.article + '.jpg' : null;
 }
 async function fetchImg(tile) {
   const fname=getJpgName(tile);
@@ -195,7 +197,7 @@ function renderFound() {
     const sz=w&&h?w/10+'×'+h/10+'×'+(tt.thickness_mm||'?')+' см':'—';
     const img=item.imgBytes
       ?'<img class="fi-img" src="data:image/jpeg;base64,'+bytesToBase64(item.imgBytes)+'" alt="">'
-      :'<div class="fi-ph">'+esc(tt.article.slice(0,5))+'</div>';
+      :'<div class="fi-ph">'+esc(tt.article)+'</div>';
     const pz = pricesKZ[tt.article.toUpperCase()] || {};
     const projVal = item.price || (pz.p ? String(pz.p) : '');
     const rrcVal = pz.r ? fmtPrice(pz.r) : '—';
