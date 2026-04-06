@@ -69,23 +69,34 @@ textarea::placeholder { font-family: Arial,sans-serif; font-size: 13px; color: #
   background: var(--item-bg); border: 1px solid var(--item-brd);
   border-radius: 8px; padding: 9px 11px; margin-bottom: 7px;
 }
-.fi-ph { width:40px; height:40px; border-radius:5px; background:#e8eaf0; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:8px; color:#aaa; text-align:center; }
-.fi-img { width:40px; height:40px; object-fit:cover; border-radius:5px; flex-shrink:0; border:1px solid #ddd; }
+.fi-ph { width:60px; height:60px; border-radius:5px; background:#e8eaf0; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:8px; color:#aaa; text-align:center; }
+.fi-img { width:60px; height:60px; object-fit:cover; border-radius:5px; flex-shrink:0; border:1px solid #ddd; }
 .fi-info { flex: 1; min-width: 0; }
 .fi-art  { font-size:12px; font-weight:700; color:var(--accent); }
 .fi-name { font-size:11px; color:var(--txt2); }
 .fi-size { font-size:10px; color:var(--txt3); }
-.fi-price {
-  width: 110px; flex-shrink: 0;
+.fi-prices {
+  display: flex; gap: 6px; flex-shrink: 0;
 }
-.fi-price input {
+.fi-price-col {
+  width: 90px;
+}
+.fi-price-col input {
   width: 100%; border: 2px solid var(--brd); border-radius: 6px;
-  padding: 6px 8px; font-size: 13px; outline: none;
+  padding: 5px 6px; font-size: 12px; outline: none;
   transition: border-color .15s; text-align: right;
 }
-.fi-price input:focus { border-color: var(--accent); }
-.fi-price input::placeholder { font-size: 11px; color: #ccc; }
+.fi-price-col input:focus { border-color: var(--accent); }
+.fi-price-col input::placeholder { font-size: 10px; color: #ccc; }
 .fi-price-label { font-size: 9px; color: var(--txt3); text-align: right; margin-top: 2px; }
+.fi-rrc-col {
+  width: 80px; text-align: right;
+}
+.fi-rrc-val {
+  padding: 5px 6px; font-size: 12px; color: #999; font-weight: 600;
+  background: #f4f5f7; border-radius: 6px; text-align: right;
+  border: 2px solid transparent;
+}
 .vat-note { font-size: 11px; color: var(--txt3); margin-top: 10px; margin-bottom: 4px; }
 </style>
 </head>
