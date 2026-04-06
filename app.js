@@ -9,6 +9,14 @@ let found   = [];
 let pricesKZ = {};
 let currentLang = 'ru';
 
+// Сброс кэша при обновлении версии
+const APP_VERSION = '2.2';
+if (localStorage.getItem('km_app_version') !== APP_VERSION) {
+  localStorage.removeItem('km_catalog');
+  localStorage.removeItem('km_prices_kz');
+  localStorage.setItem('km_app_version', APP_VERSION);
+}
+
 // ── ПЕРЕВОДЫ ──────────────────────────────────────────────────────────────
 const T = {
   ru: {
