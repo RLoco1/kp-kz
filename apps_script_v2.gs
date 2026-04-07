@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// КП Generator — Google Apps Script прокси v2
+// КП Generator — Google Apps Script прокси v2.3
 // Вставить на script.google.com, развернуть как веб-приложение
-// НОВОЕ: action=list — список всех файлов в папке
-//        action=upload — загрузка файла (base64) в папку
+// action=tiles  — каталог плитки
+// action=img    — изображение по имени файла
+// action=list   — список файлов в папке
+// action=upload — загрузка файла (POST)
+// action=log_visit — логирование визита (POST, авто-создание таблицы)
 // ═══════════════════════════════════════════════════════════════
 
 const FOLDER_ID    = '1N5Hv555IE1VR560jbKoihDIVpdUBEj7Q';
@@ -17,11 +20,12 @@ function doGet(e) {
     if (action === 'ping') return ok({ pong: true });
 
     if (action === 'tiles') {
-      const cacheKey = 'tiles_json';
-      const cached   = CACHE.get(cacheKey);
-      if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
-      const content = DriveApp.getFileById(JSON_FILE_ID).getBlob().getDataAsString('utf-8');
-      CACHE.put(cacheKey, content, CACHE_TTL);
+      // Загружаем tiles_v2.json из основной папки (исправленные артикулы)
+      const folder = DriveApp.getFolderById(FOLDER_ID);
+      let it = folder.getFilesByName('tiles_v2.json');
+      if (!it.hasNext()) it = folder.getFilesByName('tiles.json');
+      if (!it.hasNext()) return err('tiles.json not found in folder');
+      const content = it.next().getBlob().getDataAsString('utf-8');
       return ContentService.createTextOutput(content).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -34,7 +38,6 @@ function doGet(e) {
       return ok({ data: Utilities.base64Encode(blob.getBytes()), mime: blob.getContentType() });
     }
 
-    // НОВОЕ: список всех файлов в папке
     if (action === 'list') {
       const folder = DriveApp.getFolderById(FOLDER_ID);
       const files = folder.getFiles();
@@ -51,7 +54,6 @@ function doGet(e) {
   }
 }
 
-// НОВОЕ: загрузка файла через POST
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -63,22 +65,70 @@ function doPost(e) {
       if (!fname || !b64) return err('name and data required');
 
       const folder = DriveApp.getFolderById(FOLDER_ID);
-      // Проверяем — может уже есть
       const existing = folder.getFilesByName(fname);
       if (existing.hasNext()) return ok({ status: 'exists', name: fname });
 
       const bytes = Utilities.base64Decode(b64);
       const blob  = Utilities.newBlob(bytes, 'image/jpeg', fname);
       const file  = folder.createFile(blob);
-      // Сбрасываем кэш поиска
       CACHE.remove('fid_' + fname.toLowerCase());
       return ok({ status: 'uploaded', name: fname, id: file.getId() });
+    }
+
+    if (action === 'log_visit') {
+      const sheet = getOrCreateVisitsSheet_();
+      const now   = Utilities.formatDate(new Date(), 'Asia/Almaty', 'dd.MM.yyyy HH:mm:ss');
+      sheet.appendRow([now, body.ip || '', body.country || '', body.region || '', body.city || '']);
+      return ok({ status: 'logged' });
     }
 
     return err('unknown POST action: ' + action);
   } catch (e) {
     return err(e.message);
   }
+}
+
+// ── Авто-создание таблицы логов визитов ──────────────────────────────────
+function getOrCreateVisitsSheet_() {
+  const props = PropertiesService.getScriptProperties();
+  let ssId = props.getProperty('VISITS_SS_ID');
+
+  // Если таблица уже создана — открываем
+  if (ssId) {
+    try {
+      const ss = SpreadsheetApp.openById(ssId);
+      return ss.getSheetByName('Визиты') || ss.insertSheet('Визиты');
+    } catch(e) {
+      // Таблица удалена — создадим заново
+      props.deleteProperty('VISITS_SS_ID');
+    }
+  }
+
+  // Создаём новую таблицу в той же папке
+  const ss = SpreadsheetApp.create('КП KZ — Логи визитов');
+  const file = DriveApp.getFileById(ss.getId());
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  folder.addFile(file);
+  // Убираем из корня Моего диска
+  const root = DriveApp.getRootFolder();
+  root.removeFile(file);
+
+  // Сохраняем ID в свойства скрипта
+  props.setProperty('VISITS_SS_ID', ss.getId());
+
+  // Настраиваем лист
+  const sheet = ss.getActiveSheet();
+  sheet.setName('Визиты');
+  sheet.appendRow(['Дата/Время', 'IP', 'Страна', 'Регион', 'Город']);
+  sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 160);
+  sheet.setColumnWidth(2, 130);
+  sheet.setColumnWidth(3, 140);
+  sheet.setColumnWidth(4, 180);
+  sheet.setColumnWidth(5, 150);
+
+  return sheet;
 }
 
 function findFileId(fname) {
@@ -93,7 +143,6 @@ function findFileId(fname) {
     CACHE.put(key, id, CACHE_TTL);
     return id;
   }
-  // Не кэшируем отсутствие — файл может появиться позже
   return null;
 }
 

@@ -1,5 +1,5 @@
 // app.js — КП Generator KERAMA MARAZZI Kazakhstan (RU/KZ, PDF)
-// v2.1: fix photo fallback, fix placeholder article, fix layout
+// v2.3: fix images, add visit logging
 'use strict';
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyDEwJXSJR7REj4JC4BSIPJn_wMVrmWQ1ZmHKCCaRv3FweWfJSbd2sfOH4SG50V6PMo/exec';
@@ -10,7 +10,7 @@ let pricesKZ = {};
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.5';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -157,20 +157,26 @@ function getJpgName(tile) {
   return null;
 }
 
-async function fetchImg(tile) {
+async function fetchImg(tile, retries=2) {
   const fname=getJpgName(tile);
   if (!fname) return null;
-  try {
-    const ctrl=new AbortController();
-    const timer=setTimeout(()=>ctrl.abort(),8000);
-    const url=SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fname}).toString();
-    const r=await fetch(url,{redirect:'follow',signal:ctrl.signal});
-    clearTimeout(timer);
-    if (!r.ok) return null;
-    const data=await r.json();
-    if (!data.ok||!data.data) return null;
-    return decodeB64(data.data);
-  } catch(e) { return null; }
+  for (let attempt=0;attempt<=retries;attempt++) {
+    try {
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),20000);
+      const url=SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fname}).toString();
+      const r=await fetch(url,{redirect:'follow',signal:ctrl.signal});
+      clearTimeout(timer);
+      if (!r.ok) { console.warn(`fetchImg ${fname}: HTTP ${r.status}`); continue; }
+      const data=await r.json();
+      if (!data.ok||!data.data) { console.warn(`fetchImg ${fname}: not ok`,data.error||''); continue; }
+      return decodeB64(data.data);
+    } catch(e) {
+      console.warn(`fetchImg ${fname}: attempt ${attempt+1} failed —`,e.message);
+      if (attempt<retries) await new Promise(r=>setTimeout(r,1000*(attempt+1)));
+    }
+  }
+  return null;
 }
 
 // ── ПРЕВЬЮ ────────────────────────────────────────────────────────────────
@@ -233,12 +239,13 @@ $('btn').addEventListener('click', async () => {
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
     setProgress(30);
     setStatus(t('foundN')(found.length));
-    let done=0; const BATCH=10;
+    let done=0; const BATCH=4;
     for (let i=0;i<found.length;i+=BATCH) {
       await Promise.all(found.slice(i,i+BATCH).map(async item=>{
         item.imgBytes=await fetchImg(item.tile); done++;
         setProgress(30+Math.round(done/found.length*50));
       }));
+      if (i+BATCH<found.length) await new Promise(r=>setTimeout(r,300));
     }
     renderFound();
     $('found').style.display='block';
@@ -342,3 +349,22 @@ async function generatePdf(items) {
   } catch(err) { console.error(err); setStatus('Ошибка PDF: '+err.message,'err'); }
   finally { document.body.removeChild(container); $('btnPdf').disabled=false; }
 }
+
+// ── ЛОГИРОВАНИЕ ВИЗИТОВ ──────────────────────────────────────────────────
+(async function logVisit() {
+  try {
+    const geo = await fetch('https://ip-api.com/json/?fields=status,country,regionName,city,query&lang=ru')
+      .then(r => r.json());
+    if (geo.status !== 'success') return;
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'log_visit',
+        ip: geo.query,
+        country: geo.country,
+        region: geo.regionName,
+        city: geo.city
+      })
+    });
+  } catch(e) { /* не блокируем работу приложения */ }
+})();
