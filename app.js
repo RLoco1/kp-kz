@@ -10,7 +10,7 @@ let pricesKZ = {};
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.6';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -152,31 +152,90 @@ function getJpgName(tile) {
   const fromList=list.find(t=>t.toLowerCase().endsWith('.jpg'));
   if (fromList) return fromList.split('/').pop();
   if (tile.texture_url) return tile.texture_url.split('/').pop();
-  // Фолбэк: пробуем {article}.jpg
   if (tile.article) return tile.article+'.jpg';
   return null;
 }
 
-async function fetchImg(tile, retries=2) {
-  const fname=getJpgName(tile);
-  if (!fname) return null;
-  for (let attempt=0;attempt<=retries;attempt++) {
+// ── IndexedDB кеш для изображений ────────────────────────────────────────
+const IMG_DB_NAME='km_img_cache', IMG_DB_VER=1, IMG_STORE='images', IMG_TTL=7*86400000;
+function openImgDB() {
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(IMG_DB_NAME,IMG_DB_VER);
+    req.onupgradeneeded=()=>{ req.result.createObjectStore(IMG_STORE); };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function getCachedImg(fname) {
+  try {
+    const db=await openImgDB();
+    return new Promise(resolve=>{
+      const tx=db.transaction(IMG_STORE,'readonly');
+      const req=tx.objectStore(IMG_STORE).get(fname);
+      req.onsuccess=()=>{
+        const rec=req.result;
+        if (rec && Date.now()-rec.ts<IMG_TTL) resolve(rec.data);
+        else resolve(null);
+      };
+      req.onerror=()=>resolve(null);
+    });
+  } catch(e) { return null; }
+}
+async function putCachedImg(fname, b64str) {
+  try {
+    const db=await openImgDB();
+    const tx=db.transaction(IMG_STORE,'readwrite');
+    tx.objectStore(IMG_STORE).put({data:b64str,ts:Date.now()},fname);
+  } catch(e) {}
+}
+
+// ── Батчевая загрузка изображений ─────────────────────────────────────────
+async function fetchImgsBatch(fnames) {
+  // 1) Проверяем кеш
+  const result={};
+  const toFetch=[];
+  for (const fn of fnames) {
+    const cached=await getCachedImg(fn);
+    if (cached) result[fn]=cached;
+    else toFetch.push(fn);
+  }
+  if (!toFetch.length) return result;
+
+  // 2) Батч запрос — до 20 за раз (лимит URL)
+  const BATCH_SZ=15;
+  for (let i=0;i<toFetch.length;i+=BATCH_SZ) {
+    const chunk=toFetch.slice(i,i+BATCH_SZ);
     try {
       const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),20000);
-      const url=SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fname}).toString();
+      const timer=setTimeout(()=>ctrl.abort(),45000);
+      const url=SCRIPT_URL+'?'+new URLSearchParams({action:'imgs',files:chunk.join(',')}).toString();
       const r=await fetch(url,{redirect:'follow',signal:ctrl.signal});
       clearTimeout(timer);
-      if (!r.ok) { console.warn(`fetchImg ${fname}: HTTP ${r.status}`); continue; }
+      if (!r.ok) { console.warn('fetchImgsBatch HTTP',r.status); continue; }
       const data=await r.json();
-      if (!data.ok||!data.data) { console.warn(`fetchImg ${fname}: not ok`,data.error||''); continue; }
-      return decodeB64(data.data);
+      if (data.ok && data.images) {
+        for (const fn of chunk) {
+          if (data.images[fn]) {
+            result[fn]=data.images[fn];
+            putCachedImg(fn,data.images[fn]); // fire-and-forget
+          }
+        }
+      }
     } catch(e) {
-      console.warn(`fetchImg ${fname}: attempt ${attempt+1} failed —`,e.message);
-      if (attempt<retries) await new Promise(r=>setTimeout(r,1000*(attempt+1)));
+      console.warn('fetchImgsBatch error:',e.message);
+      // fallback: пробуем по одному для этого чанка
+      for (const fn of chunk) {
+        try {
+          const r2=await fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fn}),{redirect:'follow'});
+          if (r2.ok) {
+            const d2=await r2.json();
+            if (d2.ok&&d2.data) { result[fn]=d2.data; putCachedImg(fn,d2.data); }
+          }
+        } catch(e2) {}
+      }
     }
   }
-  return null;
+  return result;
 }
 
 // ── ПРЕВЬЮ ────────────────────────────────────────────────────────────────
@@ -239,13 +298,20 @@ $('btn').addEventListener('click', async () => {
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
     setProgress(30);
     setStatus(t('foundN')(found.length));
-    let done=0; const BATCH=4;
-    for (let i=0;i<found.length;i+=BATCH) {
-      await Promise.all(found.slice(i,i+BATCH).map(async item=>{
-        item.imgBytes=await fetchImg(item.tile); done++;
-        setProgress(30+Math.round(done/found.length*50));
-      }));
-      if (i+BATCH<found.length) await new Promise(r=>setTimeout(r,300));
+    // Собираем имена файлов для батчевой загрузки
+    const fnameMap={};
+    for (const item of found) {
+      const fn=getJpgName(item.tile);
+      if (fn) fnameMap[fn]=true;
+    }
+    const allFnames=Object.keys(fnameMap);
+    setProgress(35);
+    const imgMap=await fetchImgsBatch(allFnames);
+    setProgress(80);
+    // Привязываем результаты
+    for (const item of found) {
+      const fn=getJpgName(item.tile);
+      if (fn && imgMap[fn]) item.imgBytes=decodeB64(imgMap[fn]);
     }
     renderFound();
     $('found').style.display='block';

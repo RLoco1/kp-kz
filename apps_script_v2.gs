@@ -38,6 +38,29 @@ function doGet(e) {
       return ok({ data: Utilities.base64Encode(blob.getBytes()), mime: blob.getContentType() });
     }
 
+    if (action === 'imgs') {
+      const raw = (e.parameter.files || '').trim();
+      if (!raw) return err('files required');
+      const names = raw.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+      if (names.length > 30) return err('max 30 files per batch');
+      var results = {};
+      for (var i = 0; i < names.length; i++) {
+        var fname = names[i];
+        var fileId = findFileId(fname);
+        if (fileId) {
+          try {
+            var blob = DriveApp.getFileById(fileId).getBlob();
+            results[fname] = Utilities.base64Encode(blob.getBytes());
+          } catch(ex) {
+            results[fname] = null;
+          }
+        } else {
+          results[fname] = null;
+        }
+      }
+      return ok({ images: results });
+    }
+
     if (action === 'list') {
       const folder = DriveApp.getFolderById(FOLDER_ID);
       const files = folder.getFiles();
