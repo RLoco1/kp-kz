@@ -189,7 +189,7 @@ function renderFound() {
       ?'<img class="fi-img" src="data:image/jpeg;base64,'+bytesToBase64(item.imgBytes)+'" alt="">'
       :'<div class="fi-ph">'+esc(tt.article)+'</div>';
     const pz=pricesKZ[tt.article.toUpperCase()]||{};
-    const projVal=item.price||(pz.p?String(pz.p):'');
+    const projVal=item.price!==undefined&&item.price!==null?String(item.price):'0';
     const rrcVal=pz.r?fmtPrice(pz.r):'—';
     const unitLabel=pz.u||'м2';
     return `<div class="fi">
@@ -233,7 +233,7 @@ $('btn').addEventListener('click', async () => {
       const tile=catalog.find(t=>t.article.toUpperCase()===art);
       if (tile) {
         const pz=pricesKZ[art]||{};
-        found.push({tile,imgBytes:null,price:pz.p?String(pz.p):''});
+        found.push({tile,imgBytes:null,price:'0'});
       } else notFound.push(art);
     }
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
@@ -297,18 +297,13 @@ async function generatePdf(items) {
     </tr>`;
   }
   let totalHtml='';
-  const withPrice=items.filter(it=>it.price&&Number(it.price)>0);
-  if (withPrice.length>0) {
-    const total=withPrice.reduce((s,it)=>s+Number(it.price),0);
-    totalHtml=`<div style="text-align:right;margin-top:16px;font-size:17px;font-weight:700;color:#1F3864;">${currentLang==='kz'?'Барлығы':'Итого'}: ${fmtPrice(total)} \u20B8</div>`;
-  }
   const colProduct=currentLang==='kz'?'Өнім':'Продукция';
   const colPhoto=currentLang==='kz'?'Сурет':'Фото';
   const container=document.createElement('div');
   container.style.cssText='position:absolute;left:-9999px;top:0;width:794px;padding:40px 40px;background:#fff;font-family:Arial,sans-serif;color:#333;';
   container.innerHTML=`
     <div style="text-align:center;margin-bottom:24px;">
-      <div style="font-size:13px;color:#7a8fb0;letter-spacing:1px;margin-bottom:6px;">KERAMA MARAZZI · Kazakhstan</div>
+      <div style="font-size:13px;color:#7a8fb0;letter-spacing:1px;margin-bottom:6px;">KERAMA MARAZZI  KAZAKHSTAN</div>
       <div style="font-size:20px;font-weight:700;color:#1F3864;">${t('pdfTitle')}</div>
       <div style="font-size:12px;color:#999;margin-top:8px;">${t('pdfDate')} ${dateStr}</div>
     </div>
