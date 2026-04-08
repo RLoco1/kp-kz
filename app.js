@@ -7,13 +7,15 @@ const $ = id => document.getElementById(id);
 let catalog = [];
 let found   = [];
 let pricesKZ = {};
+let fileMap  = {};  // filename → Google Drive fileId
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '2.6';
+const APP_VERSION = '3.0';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
+  localStorage.removeItem('km_filemap');
   localStorage.setItem('km_app_version', APP_VERSION);
 }
 
@@ -96,16 +98,6 @@ function setLang(lang) {
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function setStatus(msg, cls='info') { const el=$('st'); el.textContent=msg; el.className='status '+cls; }
 function setProgress(pct) { $('prog').style.display=pct>0?'block':'none'; $('bar').style.width=pct+'%'; }
-function bytesToBase64(bytes) {
-  let bin=''; const chunk=8192;
-  for (let i=0;i<bytes.length;i+=chunk) bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk));
-  return btoa(bin);
-}
-function decodeB64(b64) {
-  const bin=atob(b64); const arr=new Uint8Array(bin.length);
-  for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i)&0xff;
-  return arr;
-}
 function parseArticles(raw) {
   return [...new Set(raw.split(/[\s,;]+/).map(s=>s.trim().toUpperCase().replace(/\s+/g,'')).filter(Boolean))];
 }
@@ -156,86 +148,37 @@ function getJpgName(tile) {
   return null;
 }
 
-// ── IndexedDB кеш для изображений ────────────────────────────────────────
-const IMG_DB_NAME='km_img_cache', IMG_DB_VER=1, IMG_STORE='images', IMG_TTL=7*86400000;
-function openImgDB() {
-  return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(IMG_DB_NAME,IMG_DB_VER);
-    req.onupgradeneeded=()=>{ req.result.createObjectStore(IMG_STORE); };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-async function getCachedImg(fname) {
+// ── Прямые ссылки Google Drive ────────────────────────────────────────────
+async function loadFileMap() {
+  if (Object.keys(fileMap).length>0) return;
   try {
-    const db=await openImgDB();
-    return new Promise(resolve=>{
-      const tx=db.transaction(IMG_STORE,'readonly');
-      const req=tx.objectStore(IMG_STORE).get(fname);
-      req.onsuccess=()=>{
-        const rec=req.result;
-        if (rec && Date.now()-rec.ts<IMG_TTL) resolve(rec.data);
-        else resolve(null);
-      };
-      req.onerror=()=>resolve(null);
-    });
-  } catch(e) { return null; }
-}
-async function putCachedImg(fname, b64str) {
-  try {
-    const db=await openImgDB();
-    const tx=db.transaction(IMG_STORE,'readwrite');
-    tx.objectStore(IMG_STORE).put({data:b64str,ts:Date.now()},fname);
+    const c=JSON.parse(localStorage.getItem('km_filemap')||'null');
+    if (c && Date.now()-c.ts<86400000) { fileMap=c.data; return; }
   } catch(e) {}
-}
-
-// ── Батчевая загрузка изображений ─────────────────────────────────────────
-async function fetchImgsBatch(fnames) {
-  // 1) Проверяем кеш
-  const result={};
-  const toFetch=[];
-  for (const fn of fnames) {
-    const cached=await getCachedImg(fn);
-    if (cached) result[fn]=cached;
-    else toFetch.push(fn);
-  }
-  if (!toFetch.length) return result;
-
-  // 2) Батч запрос — до 20 за раз (лимит URL)
-  const BATCH_SZ=15;
-  for (let i=0;i<toFetch.length;i+=BATCH_SZ) {
-    const chunk=toFetch.slice(i,i+BATCH_SZ);
-    try {
-      const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),45000);
-      const url=SCRIPT_URL+'?'+new URLSearchParams({action:'imgs',files:chunk.join(',')}).toString();
-      const r=await fetch(url,{redirect:'follow',signal:ctrl.signal});
-      clearTimeout(timer);
-      if (!r.ok) { console.warn('fetchImgsBatch HTTP',r.status); continue; }
+  try {
+    const r=await fetch(SCRIPT_URL+'?action=filemap',{redirect:'follow'});
+    if (r.ok) {
       const data=await r.json();
-      if (data.ok && data.images) {
-        for (const fn of chunk) {
-          if (data.images[fn]) {
-            result[fn]=data.images[fn];
-            putCachedImg(fn,data.images[fn]); // fire-and-forget
-          }
-        }
-      }
-    } catch(e) {
-      console.warn('fetchImgsBatch error:',e.message);
-      // fallback: пробуем по одному для этого чанка
-      for (const fn of chunk) {
-        try {
-          const r2=await fetch(SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fn}),{redirect:'follow'});
-          if (r2.ok) {
-            const d2=await r2.json();
-            if (d2.ok&&d2.data) { result[fn]=d2.data; putCachedImg(fn,d2.data); }
-          }
-        } catch(e2) {}
+      if (data.ok && data.map) {
+        fileMap=data.map;
+        try { localStorage.setItem('km_filemap',JSON.stringify({data:fileMap,ts:Date.now()})); } catch(e){}
       }
     }
-  }
-  return result;
+  } catch(e) { console.warn('filemap load failed:',e); }
+}
+
+function getDriveImgUrl(fname, size) {
+  if (!fname) return null;
+  const fid=fileMap[fname]||fileMap[fname.toLowerCase()];
+  if (!fid) return null;
+  return 'https://lh3.googleusercontent.com/d/'+fid+'=s'+(size||200);
+}
+
+function getDrivePdfUrl(fname) {
+  if (!fname) return null;
+  const fid=fileMap[fname]||fileMap[fname.toLowerCase()];
+  if (!fid) return null;
+  return 'https://drive.google.com/uc?export=download&id='+fid;
 }
 
 // ── ПРЕВЬЮ ────────────────────────────────────────────────────────────────
@@ -244,8 +187,8 @@ function renderFound() {
     const tt=item.tile, nm=tt.name||tt.collection||'—';
     const w=tt.width_mm, h=tt.height_mm;
     const sz=w&&h?w/10+'×'+h/10+'×'+(tt.thickness_mm||'?')+' см':'—';
-    const img=item.imgBytes
-      ?'<img class="fi-img" src="data:image/jpeg;base64,'+bytesToBase64(item.imgBytes)+'" alt="">'
+    const img=item.imgUrl
+      ?'<img class="fi-img" src="'+esc(item.imgUrl)+'" alt="" crossorigin="anonymous" referrerpolicy="no-referrer">'
       :'<div class="fi-ph">'+esc(tt.article)+'</div>';
     const pz=pricesKZ[tt.article.toUpperCase()]||{};
     const projVal=item.price!==undefined&&item.price!==null?String(item.price):'0';
@@ -284,35 +227,20 @@ $('btn').addEventListener('click', async () => {
   setProgress(1);
   try {
     setStatus(t('loadingCat'));
-    await Promise.all([loadCatalog(), loadPricesKZ()]);
+    await Promise.all([loadCatalog(), loadPricesKZ(), loadFileMap()]);
     setProgress(20);
     const articles=parseArticles(raw);
     found=[]; const notFound=[];
     for (const art of articles) {
       const tile=catalog.find(t=>t.article.toUpperCase()===art);
       if (tile) {
-        const pz=pricesKZ[art]||{};
-        found.push({tile,imgBytes:null,price:'0'});
+        const fn=getJpgName(tile);
+        const imgUrl=getDriveImgUrl(fn,200);
+        found.push({tile,imgUrl:imgUrl,imgFname:fn,price:'0'});
       } else notFound.push(art);
     }
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
-    setProgress(30);
-    setStatus(t('foundN')(found.length));
-    // Собираем имена файлов для батчевой загрузки
-    const fnameMap={};
-    for (const item of found) {
-      const fn=getJpgName(item.tile);
-      if (fn) fnameMap[fn]=true;
-    }
-    const allFnames=Object.keys(fnameMap);
-    setProgress(35);
-    const imgMap=await fetchImgsBatch(allFnames);
     setProgress(80);
-    // Привязываем результаты
-    for (const item of found) {
-      const fn=getJpgName(item.tile);
-      if (fn && imgMap[fn]) item.imgBytes=decodeB64(imgMap[fn]);
-    }
     renderFound();
     $('found').style.display='block';
     setProgress(100);
@@ -344,9 +272,9 @@ async function generatePdf(items) {
     const projPrice=it.price?fmtPrice(it.price)+' \u20B8/'+unitLabel:t('pdfNoPrice');
     const rrcPrice=pz.r?fmtPrice(pz.r)+' \u20B8/'+unitLabel:'—';
     let imgCell='';
-    if (it.imgBytes) {
-      const b64=bytesToBase64(it.imgBytes);
-      imgCell=`<img src="data:image/jpeg;base64,${b64}" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">`;
+    if (it.imgUrl) {
+      // Для PDF нужно конвертировать в base64 через canvas — сделаем ниже
+      imgCell=`<img data-src="${esc(it.imgUrl)}" class="pdf-img" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">`;
     } else {
       imgCell=`<div style="width:100px;height:100px;background:#eee;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#bbb;word-break:break-all;padding:4px;text-align:center;">${esc(tt.article)}</div>`;
     }
@@ -387,8 +315,28 @@ async function generatePdf(items) {
     <div style="margin-top:24px;font-size:11px;color:#999;border-top:1px solid #e0e0e0;padding-top:12px;">${t('pdfVat')}</div>`;
   document.body.appendChild(container);
   try {
-    const imgs=container.querySelectorAll('img');
-    await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
+    // Загружаем картинки для PDF через proxy-канвас → data URL
+    const pdfImgs=container.querySelectorAll('img.pdf-img');
+    await Promise.all([...pdfImgs].map(img=>{
+      const src=img.dataset.src;
+      if (!src) return Promise.resolve();
+      return new Promise(resolve=>{
+        const tmp=new Image();
+        tmp.crossOrigin='anonymous';
+        tmp.referrerPolicy='no-referrer';
+        tmp.onload=()=>{
+          try {
+            const c=document.createElement('canvas');
+            c.width=tmp.naturalWidth; c.height=tmp.naturalHeight;
+            c.getContext('2d').drawImage(tmp,0,0);
+            img.src=c.toDataURL('image/jpeg',0.85);
+          } catch(e) { img.removeAttribute('src'); }
+          resolve();
+        };
+        tmp.onerror=()=>{ img.removeAttribute('src'); resolve(); };
+        tmp.src=src;
+      });
+    }));
     const canvas=await html2canvas(container,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false});
     const {jsPDF}=window.jspdf;
     const pdf=new jsPDF('p','mm','a4');

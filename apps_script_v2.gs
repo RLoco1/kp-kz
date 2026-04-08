@@ -71,6 +71,25 @@ function doGet(e) {
       return ok({ count: names.length, files: names });
     }
 
+    if (action === 'filemap') {
+      const cacheKey = 'filemap_v1';
+      const cached = CACHE.get(cacheKey);
+      if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+      const folder = DriveApp.getFolderById(FOLDER_ID);
+      const files = folder.getFiles();
+      var map = {};
+      while (files.hasNext()) {
+        var f = files.next();
+        var nm = f.getName().toLowerCase();
+        if (nm.endsWith('.jpg') || nm.endsWith('.jpeg') || nm.endsWith('.png')) {
+          map[f.getName()] = f.getId();
+        }
+      }
+      var json = JSON.stringify({ok:true, map:map});
+      try { CACHE.put(cacheKey, json, CACHE_TTL); } catch(e) {}
+      return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+    }
+
     return err('unknown action: ' + action);
   } catch (e) {
     return err(e.message);
