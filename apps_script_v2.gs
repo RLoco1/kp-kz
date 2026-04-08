@@ -190,3 +190,36 @@ function findFileId(fname) {
 
 function ok(obj)  { obj.ok = true;  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
 function err(msg) { return ContentService.createTextOutput(JSON.stringify({ ok: false, error: msg })).setMimeType(ContentService.MimeType.JSON); }
+
+// ═══════════════════════════════════════════════════════════════
+// ОДНОРАЗОВАЯ ФУНКЦИЯ: запустить вручную 1 раз
+// Создаёт filemap.json (filename → fileId) в папке Drive
+// ═══════════════════════════════════════════════════════════════
+function generateFileMap() {
+  var folder = DriveApp.getFolderById(FOLDER_ID);
+  var files = folder.getFiles();
+  var map = {};
+  var count = 0;
+  while (files.hasNext()) {
+    var f = files.next();
+    var nm = f.getName();
+    var lower = nm.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) {
+      map[nm] = f.getId();
+      count++;
+    }
+  }
+  Logger.log('Image files: ' + count);
+  var json = JSON.stringify(map);
+  var existing = folder.getFilesByName('filemap.json');
+  var file;
+  if (existing.hasNext()) {
+    file = existing.next();
+    file.setContent(json);
+  } else {
+    file = folder.createFile(Utilities.newBlob(json, 'application/json', 'filemap.json'));
+  }
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  Logger.log('Done. filemap.json id: ' + file.getId());
+  Logger.log('Direct URL: https://drive.google.com/uc?export=download&id=' + file.getId());
+}

@@ -11,7 +11,7 @@ let fileMap  = {};  // filename → Google Drive fileId
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -155,6 +155,16 @@ async function loadFileMap() {
     const c=JSON.parse(localStorage.getItem('km_filemap')||'null');
     if (c && Date.now()-c.ts<86400000) { fileMap=c.data; return; }
   } catch(e) {}
+  // Пробуем статический filemap.json (быстро, без Apps Script)
+  try {
+    const r=await fetch('filemap.json');
+    if (r.ok) {
+      fileMap=await r.json();
+      try { localStorage.setItem('km_filemap',JSON.stringify({data:fileMap,ts:Date.now()})); } catch(e){}
+      return;
+    }
+  } catch(e) {}
+  // Фолбэк: Apps Script action=filemap
   try {
     const r=await fetch(SCRIPT_URL+'?action=filemap',{redirect:'follow'});
     if (r.ok) {
@@ -174,11 +184,20 @@ function getDriveImgUrl(fname, size) {
   return 'https://lh3.googleusercontent.com/d/'+fid+'=s'+(size||200);
 }
 
-function getDrivePdfUrl(fname) {
+// Фолбэк: загрузка через Apps Script (если нет filemap)
+async function fetchImgViaProxy(fname) {
   if (!fname) return null;
-  const fid=fileMap[fname]||fileMap[fname.toLowerCase()];
-  if (!fid) return null;
-  return 'https://drive.google.com/uc?export=download&id='+fid;
+  try {
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),15000);
+    const url=SCRIPT_URL+'?'+new URLSearchParams({action:'img',file:fname}).toString();
+    const r=await fetch(url,{redirect:'follow',signal:ctrl.signal});
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const data=await r.json();
+    if (!data.ok||!data.data) return null;
+    return 'data:image/jpeg;base64,'+data.data;
+  } catch(e) { return null; }
 }
 
 // ── ПРЕВЬЮ ────────────────────────────────────────────────────────────────
@@ -231,18 +250,46 @@ $('btn').addEventListener('click', async () => {
     setProgress(20);
     const articles=parseArticles(raw);
     found=[]; const notFound=[];
+    const hasFileMap=Object.keys(fileMap).length>0;
     for (const art of articles) {
       const tile=catalog.find(t=>t.article.toUpperCase()===art);
       if (tile) {
         const fn=getJpgName(tile);
-        const imgUrl=getDriveImgUrl(fn,200);
+        const imgUrl=hasFileMap?getDriveImgUrl(fn,200):null;
         found.push({tile,imgUrl:imgUrl,imgFname:fn,price:'0'});
       } else notFound.push(art);
     }
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
-    setProgress(80);
+    // Сразу показываем список (с картинками из Drive или без)
+    setProgress(60);
     renderFound();
     $('found').style.display='block';
+    // Если нет filemap — догружаем картинки через Apps Script в фоне
+    if (!hasFileMap) {
+      setStatus(t('foundN')(found.length));
+      let done=0;
+      const loadImg=async (item,idx)=>{
+        const src=await fetchImgViaProxy(item.imgFname);
+        if (src) {
+          item.imgUrl=src;
+          const el=$('foundList').querySelectorAll('.fi')[idx];
+          if (el) {
+            const ph=el.querySelector('.fi-ph');
+            if (ph) {
+              const img=document.createElement('img');
+              img.className='fi-img'; img.src=src; img.alt='';
+              ph.replaceWith(img);
+            }
+          }
+        }
+        done++;
+        setProgress(60+Math.round(done/found.length*30));
+      };
+      // Параллельно по 6
+      for (let i=0;i<found.length;i+=6) {
+        await Promise.all(found.slice(i,i+6).map((it,j)=>loadImg(it,i+j)));
+      }
+    }
     setProgress(100);
     setStatus(t('doneN')(found.length,notFound)+' '+t('hintPrices'),'ok');
   } catch(e) { setStatus('Ошибка: '+e.message,'err'); console.error(e); }
@@ -273,8 +320,13 @@ async function generatePdf(items) {
     const rrcPrice=pz.r?fmtPrice(pz.r)+' \u20B8/'+unitLabel:'—';
     let imgCell='';
     if (it.imgUrl) {
-      // Для PDF нужно конвертировать в base64 через canvas — сделаем ниже
-      imgCell=`<img data-src="${esc(it.imgUrl)}" class="pdf-img" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">`;
+      if (it.imgUrl.startsWith('data:')) {
+        // Уже base64 — вставляем напрямую
+        imgCell=`<img src="${it.imgUrl}" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">`;
+      } else {
+        // CDN URL — нужна конвертация через canvas при рендере PDF
+        imgCell=`<img data-src="${esc(it.imgUrl)}" class="pdf-img" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #ddd;">`;
+      }
     } else {
       imgCell=`<div style="width:100px;height:100px;background:#eee;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:#bbb;word-break:break-all;padding:4px;text-align:center;">${esc(tt.article)}</div>`;
     }
