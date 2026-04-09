@@ -11,7 +11,7 @@ let fileMap  = {};  // filename → Google Drive fileId
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -147,6 +147,11 @@ function getJpgName(tile) {
   if (tile.article) return tile.article+'.jpg';
   return null;
 }
+// Фолбэк: если {article}.jpg не найден, пробуем {article}_01.jpg
+function getJpgNameFallback(tile) {
+  if (tile.article) return tile.article+'_01.jpg';
+  return null;
+}
 
 // ── Прямые ссылки Google Drive ────────────────────────────────────────────
 async function loadFileMap() {
@@ -255,8 +260,14 @@ $('btn').addEventListener('click', async () => {
       const tile=catalog.find(t=>t.article.toUpperCase()===art);
       if (tile) {
         const fn=getJpgName(tile);
-        const imgUrl=hasFileMap?getDriveImgUrl(fn,200):null;
-        found.push({tile,imgUrl:imgUrl,imgFname:fn,price:'0'});
+        const fnAlt=getJpgNameFallback(tile);
+        let imgUrl=null;
+        let imgFname=fn;
+        if (hasFileMap) {
+          imgUrl=getDriveImgUrl(fn,200);
+          if (!imgUrl && fnAlt) { imgUrl=getDriveImgUrl(fnAlt,200); imgFname=fnAlt; }
+        }
+        found.push({tile,imgUrl:imgUrl,imgFname:imgFname,price:'0'});
       } else notFound.push(art);
     }
     if (!found.length) { setStatus(t('errNone')(notFound),'err'); setProgress(0); $('btn').disabled=false; return; }
@@ -269,7 +280,12 @@ $('btn').addEventListener('click', async () => {
       setStatus(t('foundN')(found.length));
       let done=0;
       const loadImg=async (item,idx)=>{
-        const src=await fetchImgViaProxy(item.imgFname);
+        let src=await fetchImgViaProxy(item.imgFname);
+        // Фолбэк: пробуем _01.jpg
+        if (!src) {
+          const fnAlt=getJpgNameFallback(item.tile);
+          if (fnAlt && fnAlt!==item.imgFname) { src=await fetchImgViaProxy(fnAlt); if(src) item.imgFname=fnAlt; }
+        }
         if (src) {
           item.imgUrl=src;
           const el=$('foundList').querySelectorAll('.fi')[idx];
