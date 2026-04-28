@@ -11,7 +11,7 @@ let fileMap  = {};  // filename → Google Drive fileId
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.4';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -106,6 +106,18 @@ function tileUrl(art) {
   return 'https://kerama-marazzi.com/catalog/'+(/^\d/.test(a)||/^KM\d/.test(a)||/^KMB|^KMD/.test(a)?'ceramic_tile':'gres')+'/'+a.toLowerCase()+'/';
 }
 function fmtPrice(n) { return n ? Number(n).toLocaleString('ru-RU') : ''; }
+// Размеры: новый формат хранит см (width_cm), старый — мм (width_mm). Возвращаем см.
+function tileSizeCm(tt) {
+  const w = tt.width_cm  != null ? +tt.width_cm  : (tt.width_mm  != null ? +tt.width_mm  / 10 : null);
+  const h = tt.height_cm != null ? +tt.height_cm : (tt.height_mm != null ? +tt.height_mm / 10 : null);
+  const d = tt.thickness_cm != null ? +tt.thickness_cm : (tt.thickness_mm != null ? +tt.thickness_mm / 10 : null);
+  return { w, h, d };
+}
+function fmtSize(tt) {
+  const { w, h, d } = tileSizeCm(tt);
+  if (!w || !h) return '—';
+  return `${w}×${h}×${d != null ? d : '?'} см`;
+}
 
 // ── ЗАГРУЗКА КАТАЛОГА ─────────────────────────────────────────────────────
 async function loadCatalog() {
@@ -209,8 +221,7 @@ async function fetchImgViaProxy(fname) {
 function renderFound() {
   $('foundList').innerHTML=found.map((item, idx) => {
     const tt=item.tile, nm=tt.name||tt.collection||'—';
-    const w=tt.width_mm, h=tt.height_mm;
-    const sz=w&&h?w/10+'×'+h/10+'×'+(tt.thickness_mm||'?')+' см':'—';
+    const sz=fmtSize(tt);
     const img=item.imgUrl
       ?'<img class="fi-img" src="'+esc(item.imgUrl)+'" alt="" crossorigin="anonymous" referrerpolicy="no-referrer">'
       :'<div class="fi-ph">'+esc(tt.article)+'</div>';
@@ -327,8 +338,7 @@ async function generatePdf(items) {
   for (let i=0;i<items.length;i++) {
     const it=items[i], tt=it.tile;
     const nm=tt.name||tt.collection||'';
-    const w=tt.width_mm, h=tt.height_mm;
-    const sz=w&&h?`${w/10}\u00D7${h/10}\u00D7${tt.thickness_mm||'?'} см`:'—';
+    const sz=fmtSize(tt);
     const bg=i%2===0?'#fff':'#f7f8fc';
     const pz=pricesKZ[tt.article.toUpperCase()]||{};
     const unitLabel=pz.u||'м2';
