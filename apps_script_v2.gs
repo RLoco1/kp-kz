@@ -8,7 +8,7 @@
 // action=log_visit — логирование визита (POST, авто-создание таблицы)
 // ═══════════════════════════════════════════════════════════════
 
-const FOLDER_ID    = '1N5Hv555IE1VR560jbKoihDIVpdUBEj7Q';
+const FOLDER_ID    = '1OyPDvIB5_cVLtcWET5axkyMUw4E8TCM5';
 const JSON_FILE_ID = '1tYWG1l43q14AuPwMXLoHbZDzsN-hcnVC';
 const CACHE        = CacheService.getScriptCache();
 const CACHE_TTL    = 21600;
