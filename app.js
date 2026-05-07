@@ -11,7 +11,7 @@ let fileMap  = {};  // filename → Google Drive fileId
 let currentLang = 'ru';
 
 // Сброс кэша при обновлении версии
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 if (localStorage.getItem('km_app_version') !== APP_VERSION) {
   localStorage.removeItem('km_catalog');
   localStorage.removeItem('km_prices_kz');
@@ -126,6 +126,20 @@ async function loadCatalog() {
     const c=JSON.parse(localStorage.getItem('km_catalog')||'null');
     if (c && Date.now()-c.ts<86400000) { catalog=c.data; return; }
   } catch(e) {}
+  // Сначала пробуем статический tiles.json (быстро, без зависимости от Apps Script)
+  try {
+    const r=await fetch('tiles.json',{cache:'no-cache'});
+    if (r.ok) {
+      const data=await r.json();
+      const arr=data.tiles||data;
+      if (Array.isArray(arr) && arr.length>0) {
+        catalog=arr;
+        try { localStorage.setItem('km_catalog',JSON.stringify({data:catalog,ts:Date.now()})); } catch(e){}
+        return;
+      }
+    }
+  } catch(e) { console.warn('static tiles.json failed:',e); }
+  // Фолбэк: Apps Script
   const r=await fetch(SCRIPT_URL+'?action=tiles',{redirect:'follow'});
   if (!r.ok) throw new Error('HTTP '+r.status);
   const data=await r.json();
